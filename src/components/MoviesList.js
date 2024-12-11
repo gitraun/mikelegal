@@ -1,20 +1,15 @@
-import { useState, useEffect, useRef } from "react";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "./ui/accordion";
+import { useState, useEffect } from "react";
 
 const MovieList = () => {
-  const [movies, setMovies] = useState([]); // Store movie data with additional details
+  const [movies, setMovies] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true); // To track if there are more movies to load
+
   const API_URL = "http://www.omdbapi.com/";
-  const API_KEY = "69b7ec79"; // Use environment variable for security
+  const API_KEY = "69b7ec79"; // Use an environment variable in production.
 
-  // Reference for scroll container
-  const scrollContainerRef = useRef(null);
-
-  // Fetch movies from the API
   const fetchMovies = async (newSearch = false) => {
     if (!searchTerm) return;
 
@@ -26,30 +21,15 @@ const MovieList = () => {
       const data = await response.json();
 
       if (data.Response === "True") {
-        const newMovies = data.Search;
-
-        // Fetch details for each movie
-        const detailedMovies = await Promise.all(
-          newMovies.map(async (movie) => {
-            const movieDetailsResponse = await fetch(
-              `${API_URL}?apikey=${API_KEY}&i=${movie.imdbID}`
-            );
-            const movieDetails = await movieDetailsResponse.json();
-            return {
-              ...movie,
-              genre: movieDetails.Genre || "N/A",
-              director: movieDetails.Director || "N/A",
-              plot: movieDetails.Plot || "No plot available.",
-            };
-          })
-        );
-
-        setMovies((prevMovies) => {
-          const updatedMovies = newSearch ? detailedMovies : [...prevMovies, ...detailedMovies];
-          return updatedMovies;
+        const movieDetailsPromises = data.Search.map(async (movie) => {
+          const movieResponse = await fetch(`${API_URL}?apikey=${API_KEY}&i=${movie.imdbID}`);
+          const movieData = await movieResponse.json();
+          return movieData;
         });
 
-        setHasMore(newMovies.length > 0); // If no new movies, stop infinite scroll
+        const movieDetails = await Promise.all(movieDetailsPromises);
+
+        setMovies((prevMovies) => (newSearch ? movieDetails : [...prevMovies, ...movieDetails]));
       } else {
         setError(data.Error || "No movies found.");
       }
@@ -60,56 +40,42 @@ const MovieList = () => {
     }
   };
 
-  // Handle search term change
   const handleSearchChange = (e) => {
     setSearchTerm(e.target.value);
   };
 
-  // Handle search submit
   const handleSearchSubmit = () => {
     setMovies([]);
     setPage(1);
     fetchMovies(true);
   };
 
-  // Handle infinite scroll
-  const handleScroll = () => {
-    const scrollContainer = scrollContainerRef.current;
-    if (scrollContainer) {
-      const bottom =
-        scrollContainer.scrollHeight === scrollContainer.scrollTop + scrollContainer.clientHeight;
-      if (bottom && !loading && hasMore) {
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
         setPage((prevPage) => prevPage + 1);
       }
-    }
-  };
+    };
 
-  // Fetch movies on page change or search term update
-  useEffect(() => {
-    if (searchTerm) {
-      fetchMovies(true);
-    }
-  }, [searchTerm]);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   useEffect(() => {
     if (page > 1) fetchMovies();
   }, [page]);
 
   return (
-    <div
-      className="min-h-screen bg-gray-100 p-4 flex flex-col items-center"
-      ref={scrollContainerRef}
-      onScroll={handleScroll}
-    >
+    <div className="min-h-screen bg-gray-100 p-4">
       <h1 className="text-3xl font-bold text-center text-blue-600 mb-4">Movie Search</h1>
-      <div className="flex justify-center mb-6 w-full max-w-md">
+      <div className="flex justify-center mb-6">
         <input
           type="text"
           placeholder="Search movies..."
           value={searchTerm}
           onChange={handleSearchChange}
           onKeyDown={(e) => e.key === "Enter" && handleSearchSubmit()}
-          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 text-black"
+          className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 text-black"
         />
         <button
           onClick={handleSearchSubmit}
@@ -119,49 +85,47 @@ const MovieList = () => {
         </button>
       </div>
 
-      <div className="w-full max-w-2xl space-y-4">
-        <Accordion type="single" collapsible>
-          {movies.map((movie) => (
-            <AccordionItem key={movie.imdbID} value={movie.imdbID}>
-              <AccordionTrigger className="text-black">{movie.Title}</AccordionTrigger>
-              <AccordionContent>
-                <div className="mt-2 space-y-2">
-                  <p className="text-sm text-black">
-                    <strong>Year:</strong> {movie.Year}
-                  </p>
-                  <p className="text-sm text-black">
-                    <strong>Type:</strong> {movie.Type}
-                  </p>
-                  <p className="text-sm text-black">
-                    <strong>Director:</strong> {movie.director}
-                  </p>
-                  <p className="text-sm text-black">
-                    <strong>Genre:</strong> {movie.genre}
-                  </p>
-                  <p className="text-sm text-black">
-                    <strong>Plot:</strong> {movie.plot}
-                  </p>
-                  {movie.Poster !== "N/A" && (
-                    <img
-                      src={movie.Poster}
-                      alt={movie.Title}
-                      className="w-full max-w-xs rounded-md"
-                    />
-                  )}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
-
-        {loading && (
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="text-black mt-2">Loading...</p>
-          </div>
-        )}
-        {error && <p className="text-center text-black">{error}</p>}
+      <div className="space-y-4">
+        {loading && <p className="text-center text-gray-500">Loading...</p>}
+        {error && <p className="text-center text-red-500">{error}</p>}
+        {movies.map((movie) => (
+          <MovieItem key={movie.imdbID} movie={movie} />
+        ))}
       </div>
+    </div>
+  );
+};
+
+const MovieItem = ({ movie }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="border border-gray-300 bg-white shadow-sm rounded-md p-4">
+      <h3
+        onClick={() => setExpanded(!expanded)}
+        className="text-lg font-semibold cursor-pointer hover:text-blue-500 text-black"
+      >
+        {movie.Title}
+      </h3>
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          <p className="text-sm text-black">
+            <strong>Year:</strong> {movie.Year}
+          </p>
+          <p className="text-sm text-black">
+            <strong>Genre:</strong> {movie.Genre}
+          </p>
+          <p className="text-sm text-black">
+            <strong>Director:</strong> {movie.Director}
+          </p>
+          <p className="text-sm text-black">
+            <strong>Plot:</strong> {movie.Plot}
+          </p>
+          {movie.Poster !== "N/A" && (
+            <img src={movie.Poster} alt={movie.Title} className="w-full max-w-xs rounded-md" />
+          )}
+        </div>
+      )}
     </div>
   );
 };
