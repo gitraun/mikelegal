@@ -1,15 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "./ui/accordion";
 
 const MovieList = () => {
-  const [movies, setMovies] = useState([]);
+  const [movies, setMovies] = useState([]); // Store movie data with additional details
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
-
+  const [hasMore, setHasMore] = useState(true); // To track if there are more movies to load
   const API_URL = "http://www.omdbapi.com/";
-  const API_KEY = "69b7ec79"; // Use an environment variable in production.
+  const API_KEY = "69b7ec79"; // Use environment variable for security
+
+  // Reference for scroll container
+  const scrollContainerRef = useRef(null);
 
   // Fetch movies from the API
   const fetchMovies = async (newSearch = false) => {
@@ -24,10 +27,29 @@ const MovieList = () => {
 
       if (data.Response === "True") {
         const newMovies = data.Search;
+
+        // Fetch details for each movie
+        const detailedMovies = await Promise.all(
+          newMovies.map(async (movie) => {
+            const movieDetailsResponse = await fetch(
+              `${API_URL}?apikey=${API_KEY}&i=${movie.imdbID}`
+            );
+            const movieDetails = await movieDetailsResponse.json();
+            return {
+              ...movie,
+              genre: movieDetails.Genre || "N/A",
+              director: movieDetails.Director || "N/A",
+              plot: movieDetails.Plot || "No plot available.",
+            };
+          })
+        );
+
         setMovies((prevMovies) => {
-          const updatedMovies = newSearch ? newMovies : [...prevMovies, ...newMovies];
+          const updatedMovies = newSearch ? detailedMovies : [...prevMovies, ...detailedMovies];
           return updatedMovies;
         });
+
+        setHasMore(newMovies.length > 0); // If no new movies, stop infinite scroll
       } else {
         setError(data.Error || "No movies found.");
       }
@@ -50,17 +72,35 @@ const MovieList = () => {
     fetchMovies(true);
   };
 
-  // Fetch movies on page change
-  useEffect(() => {
-    if (page > 1 || movies.length === 0) fetchMovies();
-  }, [page]);
-
-  const handleLoadMore = () => {
-    setPage((prevPage) => prevPage + 1);
+  // Handle infinite scroll
+  const handleScroll = () => {
+    const scrollContainer = scrollContainerRef.current;
+    if (scrollContainer) {
+      const bottom =
+        scrollContainer.scrollHeight === scrollContainer.scrollTop + scrollContainer.clientHeight;
+      if (bottom && !loading && hasMore) {
+        setPage((prevPage) => prevPage + 1);
+      }
+    }
   };
 
+  // Fetch movies on page change or search term update
+  useEffect(() => {
+    if (searchTerm) {
+      fetchMovies(true);
+    }
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (page > 1) fetchMovies();
+  }, [page]);
+
   return (
-    <div className="min-h-screen bg-gray-100 p-4 flex flex-col items-center">
+    <div
+      className="min-h-screen bg-gray-100 p-4 flex flex-col items-center"
+      ref={scrollContainerRef}
+      onScroll={handleScroll}
+    >
       <h1 className="text-3xl font-bold text-center text-blue-600 mb-4">Movie Search</h1>
       <div className="flex justify-center mb-6 w-full max-w-md">
         <input
@@ -83,7 +123,7 @@ const MovieList = () => {
         <Accordion type="single" collapsible>
           {movies.map((movie) => (
             <AccordionItem key={movie.imdbID} value={movie.imdbID}>
-              <AccordionTrigger>{movie.Title}</AccordionTrigger>
+              <AccordionTrigger className="text-black">{movie.Title}</AccordionTrigger>
               <AccordionContent>
                 <div className="mt-2 space-y-2">
                   <p className="text-sm text-black">
@@ -91,6 +131,15 @@ const MovieList = () => {
                   </p>
                   <p className="text-sm text-black">
                     <strong>Type:</strong> {movie.Type}
+                  </p>
+                  <p className="text-sm text-black">
+                    <strong>Director:</strong> {movie.director}
+                  </p>
+                  <p className="text-sm text-black">
+                    <strong>Genre:</strong> {movie.genre}
+                  </p>
+                  <p className="text-sm text-black">
+                    <strong>Plot:</strong> {movie.plot}
                   </p>
                   {movie.Poster !== "N/A" && (
                     <img
@@ -112,16 +161,6 @@ const MovieList = () => {
           </div>
         )}
         {error && <p className="text-center text-black">{error}</p>}
-        {!loading && movies.length > 0 && (
-          <div className="text-center mt-4">
-            <button
-              onClick={handleLoadMore}
-              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              Load More
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
