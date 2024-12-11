@@ -8,7 +8,7 @@ const MovieList = () => {
   const [page, setPage] = useState(1);
 
   const API_URL = "http://www.omdbapi.com/";
-  const API_KEY = "69b7ec79"; // Use an environment variable in production.
+  const API_KEY = process.env.NEXT_PUBLIC_OMDB_API_KEY;
 
   const fetchMovies = async (newSearch = false) => {
     if (!searchTerm) return;
@@ -21,15 +21,7 @@ const MovieList = () => {
       const data = await response.json();
 
       if (data.Response === "True") {
-        const movieDetailsPromises = data.Search.map(async (movie) => {
-          const movieResponse = await fetch(`${API_URL}?apikey=${API_KEY}&i=${movie.imdbID}`);
-          const movieData = await movieResponse.json();
-          return movieData;
-        });
-
-        const movieDetails = await Promise.all(movieDetailsPromises);
-
-        setMovies((prevMovies) => (newSearch ? movieDetails : [...prevMovies, ...movieDetails]));
+        setMovies((prevMovies) => (newSearch ? data.Search : [...prevMovies, ...data.Search]));
       } else {
         setError(data.Error || "No movies found.");
       }
@@ -45,25 +37,28 @@ const MovieList = () => {
   };
 
   const handleSearchSubmit = () => {
-    setMovies([]);
-    setPage(1);
-    fetchMovies(true);
+    setMovies([]); // Reset movie list on new search
+    setPage(1); // Reset to page 1 on new search
+    fetchMovies(true); // Fetch movies for the first page
   };
 
   useEffect(() => {
+    if (page > 1) {
+      fetchMovies(); // Fetch next page of movies
+    }
+  }, [page]); // Trigger when page changes
+
+  useEffect(() => {
+    // Handle infinite scrolling when user reaches the bottom of the page
     const handleScroll = () => {
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
-        setPage((prevPage) => prevPage + 1);
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100 && !loading) {
+        setPage((prevPage) => prevPage + 1); // Load next page
       }
     };
 
     window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  useEffect(() => {
-    if (page > 1) fetchMovies();
-  }, [page]);
+    return () => window.removeEventListener("scroll", handleScroll); // Clean up event listener
+  }, [loading]); // Add loading as dependency to avoid multiple triggers
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
@@ -86,43 +81,102 @@ const MovieList = () => {
       </div>
 
       <div className="space-y-4">
-        {loading && <p className="text-center text-gray-500">Loading...</p>}
+        {loading && page === 1 && <p className="text-center text-gray-500">Loading...</p>}{" "}
+        {/* Show loading initially */}
         {error && <p className="text-center text-red-500">{error}</p>}
         {movies.map((movie) => (
           <MovieItem key={movie.imdbID} movie={movie} />
         ))}
+        {loading && (
+          <div className="flex items-center justify-center w-full h-48">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 const MovieItem = ({ movie }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [details, setDetails] = useState(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [imageLoading, setImageLoading] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
+
+  const API_URL = "https://www.omdbapi.com/";
+  const API_KEY = process.env.NEXT_PUBLIC_OMDB_API_KEY;
+
+  const fetchMovieDetails = async () => {
+    setLoadingDetails(true);
+    try {
+      const response = await fetch(`${API_URL}?apikey=${API_KEY}&i=${movie.imdbID}`);
+      const data = await response.json();
+      if (data.Response === "True") {
+        setDetails(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch movie details");
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  useEffect(() => {
+    if (details) return;
+    fetchMovieDetails();
+  }, [movie.imdbID]);
+
+  const handleImageLoad = () => {
+    setImageLoading(false);
+  };
+
+  const toggleDetails = () => {
+    setIsOpen(!isOpen);
+  };
 
   return (
     <div className="border border-gray-300 bg-white shadow-sm rounded-md p-4">
-      <h3
-        onClick={() => setExpanded(!expanded)}
-        className="text-lg font-semibold cursor-pointer hover:text-blue-500 text-black"
-      >
+      <h3 className="text-lg font-semibold text-black cursor-pointer" onClick={toggleDetails}>
         {movie.Title}
       </h3>
-      {expanded && (
-        <div className="mt-2 space-y-2">
+      {isOpen && (
+        <div className="mt-2">
           <p className="text-sm text-black">
             <strong>Year:</strong> {movie.Year}
           </p>
-          <p className="text-sm text-black">
-            <strong>Genre:</strong> {movie.Genre}
-          </p>
-          <p className="text-sm text-black">
-            <strong>Director:</strong> {movie.Director}
-          </p>
-          <p className="text-sm text-black">
-            <strong>Plot:</strong> {movie.Plot}
-          </p>
-          {movie.Poster !== "N/A" && (
-            <img src={movie.Poster} alt={movie.Title} className="w-full max-w-xs rounded-md" />
+          {details ? (
+            <>
+              <p className="text-sm text-black">
+                <strong>Genre:</strong> {details.Genre || "N/A"}
+              </p>
+              <p className="text-sm text-black">
+                <strong>Director:</strong> {details.Director || "N/A"}
+              </p>
+              <p className="text-sm text-black">
+                <strong>Plot:</strong> {details.Plot || "N/A"}
+              </p>
+            </>
+          ) : loadingDetails ? (
+            <p className="text-sm text-gray-500">Loading details...</p>
+          ) : (
+            <p className="text-sm text-gray-500">No additional details available</p>
+          )}
+          {movie.Poster !== "N/A" ? (
+            <>
+              {imageLoading && (
+                <div className="w-full max-w-xs h-48 bg-gray-200 flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
+                </div>
+              )}
+              <img
+                src={movie.Poster}
+                alt={movie.Title}
+                className={`w-full max-w-xs rounded-md ${imageLoading ? "hidden" : ""}`}
+                onLoad={handleImageLoad}
+              />
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">No image available</p>
           )}
         </div>
       )}
